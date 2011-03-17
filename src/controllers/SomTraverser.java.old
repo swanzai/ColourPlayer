@@ -1,0 +1,472 @@
+package controllers;
+
+import helpers.ArrayUtilities;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+
+import org.eclipse.jface.window.ApplicationWindow;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.events.MouseEvent;
+import org.eclipse.swt.events.MouseListener;
+import org.eclipse.swt.events.MouseMoveListener;
+import org.eclipse.swt.events.PaintEvent;
+import org.eclipse.swt.events.PaintListener;
+import org.eclipse.swt.graphics.Color;
+import org.eclipse.swt.widgets.Canvas;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.Shell;
+
+import som.Som;
+import som.SomNode;
+import sun.awt.image.PixelConverter;
+
+/**
+ * This class traverses a SOM depending on an angle and starting location. Each
+ * time we call getNext(), the position is updated. The nodes that are covered
+ * by the vector are stored in a HashSet
+ * 
+ * @author Mike
+ * 
+ */
+public class SomTraverser {
+    private final Som som;
+    public int col = -1;
+    public int row = -1;
+    public int x2, y2;
+
+    public float angle = 0.0f;
+    private int velocity = 3;
+    private int distanceRemaining;
+
+    private ArrayList<DrawListener> listeners = new ArrayList<DrawListener>();
+    public SomNode[][] rotatedNet;
+    public SomNode[][] net;
+
+    public SomTraverser(Som som) {
+        this.som = som;
+        som.init();
+        net = som.getNetwork();
+    }
+
+    public void addDrawListener(DrawListener listener) {
+        listeners.add(listener);
+    }
+
+    public HashSet<SomNode> getNext() {
+        if (col == -1 || row == -1) {
+            throw new IllegalStateException("Set the position, angle and velocity before calling getNext()");
+        }
+
+        HashSet<SomNode> somNodes = new HashSet<SomNode>();
+        distanceRemaining = velocity;
+
+        while (distanceRemaining > 0) {
+            System.out.println(col + "," + row);
+            int rotated = normaliseRotation();
+            updateAngle();
+            int[] target = getEdgeTarget();
+            x2 = target[0];
+            y2 = target[1];
+            somNodes.addAll(getSomNodes(target));
+            normaliseRotation(-rotated);
+            System.out.println("Rem: " + distanceRemaining);
+        }
+
+        return somNodes;
+    }
+
+    public int normaliseRotation(int rotation) {
+        System.out.println("Rotating " + rotation);
+        SomNode[][] net = som.getNetwork();
+
+        int cols = som.getWidth();
+        int rows = som.getHeight();
+
+        // create new array to store rotated values
+        if (!(rotation % 180 == 0)) {
+            rotatedNet = new SomNode[rows][cols];
+        } else {
+            rotatedNet = new SomNode[cols][rows];
+        }        
+
+        // assign values to rotated array
+        for (int col = 0; col < cols; col++) {
+            for (int row = 0; row < rows; row++) {
+                if (rotation == 90 || rotation == -270) {
+                    rotatedNet[row][col] = net[col][rows - 1 - row];
+                } else if (rotation == 180 || rotation == -180) {
+                    rotatedNet[col][row] = net[cols - 1 - col][rows - 1 - row];
+                } else if (rotation == -90 || rotation == 270) {
+                    rotatedNet[row][col] = net[cols - 1 - col][row];
+                }
+            }
+        }
+
+        // change position to match rotation
+        if (rotation == 90 || rotation == -270) {
+            row = col;
+            col = rows - 1 - row;
+            
+            int temp = y2;
+            y2 = x2;
+            x2 = rows - 1 - temp;            
+        } else if (rotation == 180 || rotation == -180) {
+            row = rows - row - 1;            
+            col = cols - col - 1;
+            
+            y2 = rows - y2 - 1;
+        } else if (rotation == -90 || rotation == 270) {
+            col = row;
+            row = cols - 1 - col;            
+            
+            
+            int temp = x2;
+            x2 = y2;            
+            y2 = cols - 1 - temp;
+        }
+               
+
+        // normalise angle
+        angle = angle + rotation;
+
+        return rotation;
+    }
+
+    public int normaliseRotation() {
+
+        System.out.println("Normalising rotation from " + angle);
+        
+        angle = angle % 360;
+        
+        if (angle >= 0 && angle < 90) {
+            System.out.println("Angle < 90 > 45");
+            rotatedNet = net;
+            return 0;
+        } else if (angle >= 90 && angle < 180) {
+            normaliseRotation(-90);
+            return -90;
+        } else if (angle >= 180 && angle < 270) {
+            normaliseRotation(-180);
+            return -180;
+        } else if (angle >= 270 && angle < 360) {
+            normaliseRotation(-270);
+            return -270;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Evaluates whether an immediate movement will cause a collision with an
+     * edge, and update the angle accordingly to reflection laws
+     */
+    private void updateAngle() {
+        System.out.println("Old angle: " + angle);
+        if (col==rotatedNet.length - 1) {
+            angle = angle - 2 * angle;
+        }
+        if (row==0) {
+            angle = angle + (90 - angle) * 2;
+        }
+
+        System.out.println("New angle :" + angle);
+    }
+
+    /**
+     * Use Bresenham's algorithm to get the som nodes on route to the target
+     * 
+     * @return
+     */
+    private HashSet<SomNode> getSomNodes(int[] target) {
+        int x1 = col;
+        int y1 = row;
+        int x2 = target[0];
+        int y2 = target[1];
+
+        HashSet<SomNode> nodes = new HashSet<SomNode>();
+        SomNode[][] network = som.getNetwork();
+
+        // bresenham's algorithm
+        boolean steep = Math.abs(y2 - y1) > Math.abs(x2 - x1);
+        if (steep) {
+            // swap x and y
+            int temp = x1;
+            x1 = y1;
+            y1 = temp;
+
+            temp = x2;
+            x2 = y2;
+            y2 = temp;
+        }
+        int deltax = Math.abs(x2 - x1);
+        int deltay = Math.abs(y2 - y1);
+        int error = 0;
+        int deltaerr = deltay;
+        int x = x1;
+        int y = y1;
+
+        int xstep, ystep;
+
+        if (x1 < x2)
+            xstep = 1;
+        else
+            xstep = -1;
+
+        if (y1 < y2)
+            ystep = 1;
+        else
+            ystep = -1;
+
+        
+        if (steep) {
+            nodes.add(rotatedNet[y][x]);
+            setPosition(y, x);
+        } else {
+            nodes.add(rotatedNet[x][y]);
+            setPosition(x, y);
+        }
+
+        distanceRemaining--;
+
+        while (distanceRemaining > 0 && x != x2) {
+            x = x + xstep;
+
+            error = error + deltaerr;
+            if (2 * error > deltax)
+                y = y + ystep;
+            error = error - deltax;
+            if (steep) {
+                nodes.add(rotatedNet[y][x]);
+                setPosition(y, x);
+            } else {
+                nodes.add(rotatedNet[x][y]);
+                setPosition(x, y);
+            }
+            
+            System.out.println("Moved 1");
+
+            distanceRemaining--;
+        }
+
+        return nodes;
+    }
+
+    private int[] getEdgeTarget() {
+        int netWidth = rotatedNet.length;
+        int netHeight = rotatedNet[0].length;        
+
+        // values to aim for
+        int x2 = -1;
+        int y2 = -1;
+
+        int xDistance = netWidth - 1 - col;
+        int yDistance = row;
+
+
+        int topHitX = (int) (Math.abs(Math.tan(Math.toRadians(angle))) * yDistance) + col;
+
+        if (topHitX > netWidth - 1) {
+            System.out.println("Hit right");
+            // hit right
+            x2 = netWidth - 1;
+            y2 = yDistance - (int) ((double) xDistance / Math.tan(Math.toRadians(angle)));
+        } else {
+            // hit top
+            System.out.println("Hit top");
+            x2 = topHitX;
+            y2 = 0;
+        }
+
+        System.out.println("Edge target: " + x2 + "," + y2);
+        
+        
+        return new int[] { x2, y2 };
+    }
+
+    public void setPosition(int col, int row) {
+        if (col >= Som.getWidth() || row >= Som.getHeight()) {
+            throw new IllegalArgumentException("Invalid SOM position specified");
+        }
+
+        this.col = col;
+        this.row = row;
+
+        for (DrawListener l : listeners) {
+            l.draw(col, row);
+        }
+    }
+
+    public void setDirection(float angle) {
+        this.angle = angle % 360;
+    }
+
+    public void setVelocity(int velocity) {
+        if (velocity < 1) {
+            throw new IllegalArgumentException("Velocity cannot be less than 1");
+        }
+        this.velocity = velocity;
+    }
+
+    public static void main(String[] args) {
+        Display display = new Display();
+        Shell shell = new Shell(display);
+
+        ApplicationWindow win = new SomTraverserTest(shell);
+        win.setBlockOnOpen(true);
+        win.open();
+        display.dispose();
+        shell.dispose();
+
+    }
+
+    public int[] getPosition() {
+        return new int[] { col, row };
+    }
+}
+
+class SomTraverserTest extends ApplicationWindow {
+    public final int gridWidth = 5;
+    public final int gridHeight = 5;
+    public final int gap = 1;
+
+    private int x;
+    private int y;
+    private int x2, y2;
+    private float angle;
+    private Canvas canvas;
+    private SomTraverser t;
+    private ArrayList<int[]> pixels = new ArrayList<int[]>();
+
+    public SomTraverserTest(Shell shell) {
+        super(shell);
+
+        x = 2;
+        y = 2;
+        angle = 315f;
+
+        t = new SomTraverser(new Som(null));
+        // DrawListener listener = new DrawListener() {
+        // public void draw(int x, int y) {
+        // pixels.add(new int[] { x, y });
+        // if (canvas != null)
+        // canvas.redraw();
+        // };
+        // };
+        //
+        // t.addDrawListener(listener);
+        t.setDirection(angle);
+        t.setPosition(x, y);
+    }
+
+    @Override
+    protected Control createContents(Composite parent) {
+        canvas = new Canvas(parent, SWT.DOUBLE_BUFFERED);
+        canvas.addPaintListener(new SomTraverserPaintListener());
+
+        canvas.getShell().setSize(Som.getWidth() * gridWidth + Som.getWidth() * gap + 50, Som.getHeight() * gridHeight + Som.getHeight() * gap + 50);
+        SomMouseListener mListener = new SomMouseListener();
+        canvas.addMouseListener(mListener);
+        canvas.addMouseMoveListener(mListener);
+        return canvas;
+    }
+
+    private boolean hasPixel(int col, int row) {
+        for (int[] pixel : pixels) {
+            if (pixel[0] == col && pixel[1] == row) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    class SomTraverserPaintListener implements PaintListener {
+
+        final Color bgColor = Display.getCurrent().getSystemColor(SWT.COLOR_GRAY);
+        final Color startColor = Display.getCurrent().getSystemColor(SWT.COLOR_RED);
+        final Color endColor = Display.getCurrent().getSystemColor(SWT.COLOR_BLUE);
+        final Color neutralColor = Display.getCurrent().getSystemColor(SWT.COLOR_DARK_GRAY);
+
+        public void paintControl(PaintEvent e) {
+            int cols = Som.getWidth();
+            int rows = Som.getHeight();
+
+            for (int col = 0; col < cols; col++) {
+                for (int row = 0; row < rows; row++) {
+                    if (col == x && row == y) {
+                        e.gc.setBackground(startColor);
+                    } else if (col == x2 && row == y2) {
+                        e.gc.setBackground(endColor);
+                    } else if (hasPixel(col, row)) {
+                        e.gc.setBackground(neutralColor);
+                    } else {
+                        e.gc.setBackground(bgColor);
+                    }
+
+                    e.gc.fillRectangle(col * gridWidth + col * gap, row * gridHeight + row * gap, gridWidth, gridHeight);
+                }
+            }
+
+        }
+    }
+
+    class SomMouseListener implements MouseListener, MouseMoveListener {
+        boolean down = false;
+
+        private int[] coordsToSquare(int x, int y) {
+            int squareX = (int) Math.round((double) x / (gridWidth + gap));
+            int squareY = (int) Math.round((double) y / (gridHeight + gap));
+
+            return new int[] { squareX, squareY };
+        }
+
+        public void mouseDoubleClick(MouseEvent arg0) {
+        }
+
+        public void mouseDown(MouseEvent e) {
+            if (e.button == 1) {
+                int[] square = coordsToSquare(e.x, e.y);
+                if (Math.abs(square[0] - x) < 3 && Math.abs(square[1] - y) < 3) {
+                    down = true;
+                }
+            }
+        }
+
+        public void mouseMove(MouseEvent e) {
+            if (down) {
+                int[] square = coordsToSquare(e.x, e.y);
+
+                x = Math.min(Som.getWidth() - 1, square[0]);
+                x = Math.max(0, x);
+
+                y = Math.min(Som.getHeight() - 1, square[1]);
+                y = Math.max(0, y);
+
+                t.setPosition(x, y);
+
+                x2 = t.x2;
+                y2 = t.y2;
+                canvas.redraw();
+            }
+        }
+
+        public void mouseUp(MouseEvent arg0) {
+            if (down) {
+                down = false;
+
+                t.getNext();
+                int[] newPos = t.getPosition();
+                x = newPos[0];
+                y = newPos[1];
+                canvas.redraw();
+            }
+        }
+    }
+
+}
+
+interface DrawListener {
+    public void draw(int x, int y);
+}

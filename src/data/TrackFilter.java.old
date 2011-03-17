@@ -1,0 +1,165 @@
+/* Copyright (C) 2006 Michael Voong
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA. */
+
+package data;
+
+import java.util.ArrayList;
+
+public class TrackFilter {
+    String album = "";
+
+    String artist = "";
+
+    String title = "";
+
+    String playlistName = "";
+
+    /**
+     * A strict filter mustn't match partial words
+     */
+    public boolean strict = true;
+
+    public boolean visualFiltering = false;
+
+    ArrayList<OrderByItem> orderBy;
+
+    public TrackFilter() {
+    }
+
+    /**
+     * Merge with another track filter
+     * 
+     * @param clientFilter
+     *            The filter to merge from
+     */
+    public void mergeWith(TrackFilter clientFilter) {
+        if (clientFilter != null) {
+            if (!clientFilter.getAlbum().equals("")) {
+                this.album = clientFilter.getAlbum();
+            }
+            if (!clientFilter.getArtist().equals("")) {
+                this.artist = clientFilter.getArtist();
+            }
+            if (!clientFilter.getTitle().equals("")) {
+                this.title = clientFilter.getTitle();
+            }
+
+            // always overwrite playlist name
+            this.playlistName = clientFilter.getPlaylist();
+            this.strict = clientFilter.strict;
+
+            // reason why we don't merge visual filtering here is that we want
+            // the host filter to always keep its property
+
+            if (clientFilter.getOrderBys() != null) {
+                this.orderBy = new ArrayList<OrderByItem>(clientFilter
+                        .getOrderBys());
+            }
+        }
+    }
+
+    public String getAlbum() {
+        return album;
+    }
+
+    public void setAlbum(String album) {
+        this.album = album;
+    }
+
+    public String getArtist() {
+        return artist;
+    }
+
+    public void setArtist(String artist) {
+        this.artist = artist;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getPlaylist() {
+        return playlistName;
+    }
+
+    public void setPlaylist(String playlistName) {
+        this.playlistName = playlistName;
+    }
+
+    @Override
+    public String toString() {
+        return "Title: " + title + "\n" + "Artist: " + artist + "\n"
+                + "Title: " + title + "\n" + "Playlist" + playlistName + "\n" + "Album:" + album;
+    }
+
+    public ArrayList<OrderByItem> getOrderBys() {
+        return orderBy;
+    }
+
+    /**
+     * Add last
+     * 
+     * @param column
+     * @param direction
+     *            One of OrderByItem.DIRECTION_UP or OrderByItem.DIRECTION_DOWN
+     */
+    public void addOrderBy(String column, int direction) {
+        addOrderBy(orderBy.size(), column, direction);
+    }
+
+    /**
+     * Add to the position specified
+     * 
+     * @param position
+     * @param column
+     * @param direction
+     */
+    public void addOrderBy(int position, String column, int direction) {
+        if (orderBy == null) {
+            orderBy = new ArrayList<OrderByItem>();
+        }
+
+        orderBy.add(position, new OrderByItem(column, direction));
+    }
+
+    public void removeOrderBys() {
+        if (orderBy == null) {
+            return;
+        } else {
+            orderBy.clear();
+        }
+    }
+
+    public boolean isStrict() {
+        return strict;
+    }
+
+    public void setStrict(boolean strict) {
+        this.strict = strict;
+    }
+
+    public boolean isVisualFiltering() {
+        return visualFiltering;
+    }
+
+    public void setVisualFiltering(boolean visualFiltering) {
+        this.visualFiltering = visualFiltering;
+    }
+}
